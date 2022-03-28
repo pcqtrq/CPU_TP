@@ -2,6 +2,9 @@
 #include<vector>
 #include<iostream>
 #include<unordered_map>
+#include<thread>
+#include<mutex>
+#include<atomic>
 
 using namespace std;
 
@@ -32,6 +35,11 @@ struct TP_Mutex{
     int position;
 }tp_mutex;
 
+
+struct TP{
+    int tp_serial_num;
+    vector<TP_Mutex> mutex_line;
+};
 
 
 class Table{          //单表结构，行存储
@@ -95,6 +103,10 @@ class Table{          //单表结构，行存储
         }
     
 
+        void lock_line_and_free(vector<int> primay_val_line){  //依据主键，表的行数据进行上锁，并在某段时间后自动释放
+
+        }
+
     private:
         // 目前假设所有属性的类型均为有理数
         string table_name;                                        //表名
@@ -118,6 +130,10 @@ class Table{          //单表结构，行存储
 
 class DB{          //数据库，保存多个表
     public:
+        DB(){
+            tp_serial_num=0;
+        }
+
         void table_import(){              //导入新表
             Table new_table;
             tbl.push_back(new_table);
@@ -220,29 +236,30 @@ class DB{          //数据库，保存多个表
         void TP_process(vector<TP_Struct>& dt_data){      
           /*
           **我们采用行锁保证事务的准确性，并通过加锁有次序，并设定事务持锁的最长时间阈值，来解决事务行锁机制的死锁问题
+          *我们要求必须获得当前数据涉及到的数据所涉及到的所有的锁后，才可以进行数据的实际修改
+          *我们的所有锁都是互斥锁
           */
-
-            for(int i=0;i<dt_data.size();i++){
-                Get_Mutex(dt_data[i]);
+            int lock_num=0;
+            while(lock_num!=dt_data.size()){
+                
             }
 
-
-                 //清空当前事务的数据
-            dt_data.clear();
+            for(int i=0;i<dt_data.size();i++){
+              //  int 
+               // Get_Mutex(dt_data[i]);
+            }
         } 
 
-        void Calcu_Data(){
-            
-        }
-
         void Get_Mutex(TP_Struct& dt_data){
-
+           // lock_guard<mutex> 
         }
 
     private:
         vector<Table> tbl;           //存储所有的表
 
-        unordered_map<string,int> table_name_index;      //快速查找表的索引    
+        unordered_map<string,int> table_name_index;      //快速查找表的索引,int为tbl中的下标    
+
+        int tp_serial_num;                         //事务的全局编号
 
 }db;
   
