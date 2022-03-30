@@ -284,14 +284,27 @@ class DB{          //数据库，保存多个表
             }
 
             int lock_num=0;
+            vector<int> tp_lock_flag;
+            tp_lock_flag.resize(tp.tp_date.size());
+
             while(1){      //获取锁
                 lock_num=0;
                 for(int i=0;i<tp.tp_date.size();i++){
                     if(tb[i]->primary_key_index.find(tp.tp_date[i].primary_key_val)->second.lock()){
                         ++lock_num;
+                        tp_lock_flag[i]=1;
+                    }else{
+                        tp_lock_flag[i]=0;
                     }
                 }
-                if(lock_num==tp.tp_date.size()) break;
+                if(lock_num==tp.tp_date.size()) break;          //获取锁成功
+                else{
+                    for(int i=0;i<tp_lock_flag.size();i++){       //解锁
+                        if(tp_lock_flag[i]){
+                            tb[i]->primary_key_index.find(tp.tp_date[i].primary_key_val)->second.unlock(); 
+                        }
+                    }
+                }
             }
 
             for(int i=0;i<tp.tp_date.size();i++){    //实际修改数据
