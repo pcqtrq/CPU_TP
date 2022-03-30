@@ -25,20 +25,52 @@ struct TP_Struct{           //TP事务的基础结构，面向 people.(8).age=3+
     double right_val_1;
     double right_val_2;
 
+    double right_val;           //right_val=right_val_1+right_val_2;
+    //double* left_val;           //left_val是左值的地址
+
     void display(){
         cout<<table_name<<" "<<primary_key_val<<"  "<<left_val_name<<"  "<<right_val_1<<"  "<<right_val_2<<endl;
     }
 };
 
-struct TP_Mutex{
-    bool flag;
-    int position;
-}tp_mutex;
+class TP_Mutex{    
+    private:
+        mutex *m;
+        bool flag;        //标记该位置是否被占用,原子数据
+
+    public:
+        int position;          //记录在表中的实际位置
+        TP_Mutex(){
+            m=new mutex();
+        }
+        bool lock(){
+            auto& m1=*m;
+            if(m1.try_lock()){
+                  flag=true;
+                  m1.unlock();
+                  return true;
+            }
+            return false;
+        }
+
+        void unlock(){
+            flag=false;
+        }
+
+        ~TP_Mutex(){
+            delete m;
+        }
 
 
-struct TP{
-    int tp_serial_num;
-    vector<TP_Mutex> mutex_line;
+
+
+};
+
+
+struct TP{                          //TP事务
+    int serial_num;                  //事务的编号
+    vector<TP_Struct> tp_date;      //事务的数据
+    vector<TP_Mutex*> mutex_lock;  //事务的行锁集合
 };
 
 
@@ -73,12 +105,14 @@ class Table{          //单表结构，行存储
                 attribute_double_val.resize(num);
                 cout<<"Enter record : \n";
 
-                tp_mutex.flag=0;
-                tp_mutex.position=0;
+
 
                 int y=0;
+                TP_Mutex tp_mutex;
+
                 for(int i=0;i<num;i++){
-                
+
+           
                     attribute_double_val[i].resize(attribute_name.size());
 
                     for(int j=0;j<attribute_name.size();j++){
@@ -88,6 +122,9 @@ class Table{          //单表结构，行存储
                             if(primary_key_index.find(y)==primary_key_index.end()){         //构建hash索引，用于寻找所有的记录
                                 tp_mutex.position=i;
                                 primary_key_index[y]=tp_mutex;
+                                // primary_key_index[y]=move(tp_mutex);
+                                // primary_key_index.insert({y,tp_mutex});
+                                 //primary_key_index.insert(make_pair(y,move(tp_mutex)));
                             }else{
                                 cout<<"The primary key already exits ! retry"<<endl;         //当前主键已存在，重新输入
                                 j--;
@@ -99,11 +136,6 @@ class Table{          //单表结构，行存储
                 }
             }
             cout<<"Data import is finished\n";
-
-        }
-    
-
-        void lock_line_and_free(vector<int> primay_val_line){  //依据主键，表的行数据进行上锁，并在某段时间后自动释放
 
         }
 
@@ -148,7 +180,9 @@ class DB{          //数据库，保存多个表
             string sql;
             cin>>sql;
 
-            vector<TP_Struct> TP_date;  //保存SQL语句中的TP信息
+            TP tp;               //构建TP事务
+            tp.serial_num=tp_serial_num++;           //添加唯一全局编号
+            vector<TP_Struct>& TP_date=tp.tp_date;  //保存SQL语句中的TP信息
             string tmp;
             bool flag=1;
             //int i=0,j=0;
@@ -159,11 +193,13 @@ class DB{          //数据库，保存多个表
                     flag=flag&&insert_new_sql(TP_date,tmp);            //添加语句
                 }
             }
-
          
             if(flag){
                 cout<<"SQL statement is checked , the TP is running \n";
-                TP_process(TP_date);
+
+                TP_process(tp);
+                cout<<"TP is finished \n";
+
             }else{
                 cout<<"SQL statement is wrong . Please enter again (0) or exit (1).\n";
                 int p;
@@ -205,6 +241,8 @@ class DB{          //数据库，保存多个表
      
             tp_new.right_val_2=stod(tmp.substr(j+1,tmp.size()-(j+1)));
 
+            tp_new.right_val=tp_new.right_val_1+tp_new.right_val_2;
+
             tp_new.display();
 
             if(!check_sql(tp_new.table_name,tp_new.primary_key_val,tp_new.left_val_name)){
@@ -233,33 +271,47 @@ class DB{          //数据库，保存多个表
             return false;
         }
         
-        void TP_process(vector<TP_Struct>& dt_data){      
+        void TP_process(TP& tp){      
           /*
-          **我们采用行锁保证事务的准确性，并通过加锁有次序，并设定事务持锁的最长时间阈值，来解决事务行锁机制的死锁问题
+          **我们采用行锁保证事务的准确性，并通过设定事务持锁的最长时间阈值，来解决事务行锁机制的死锁问题
           *我们要求必须获得当前数据涉及到的数据所涉及到的所有的锁后，才可以进行数据的实际修改
           *我们的所有锁都是互斥锁
           */
+            vector<Table*> tb;                //定位TP数据中的每行所在表
+            tb.resize(tp.tp_date.size());
+            for(int i=0;i<tb.size();i++){
+                tb[i]=&tbl[table_name_index.find(tp.tp_date[i].table_name)->second];  //定位表
+            }
+
             int lock_num=0;
-            while(lock_num!=dt_data.size()){
-                
+            while(1){      //获取锁
+                lock_num=0;
+                for(int i=0;i<tp.tp_date.size();i++){
+                    if(tb[i]->primary_key_index.find(tp.tp_date[i].primary_key_val)->second.lock()){
+                        ++lock_num;
+                    }
+                }
+                if(lock_num==tp.tp_date.size()) break;
             }
 
-            for(int i=0;i<dt_data.size();i++){
-              //  int 
-               // Get_Mutex(dt_data[i]);
+            for(int i=0;i<tp.tp_date.size();i++){    //实际修改数据
+                auto row=tb[i]->primary_key_index.find(tp.tp_date[i].primary_key_val)->second.position;  //定位行
+                auto column=tb[i]->attr_index.find(tp.tp_date[i].left_val_name)->second;       //定位列
+                tb[i]->attribute_double_val[row][column]=tp.tp_date[i].right_val;             //修改值
+
+                //解锁
+                tb[i]->primary_key_index.find(tp.tp_date[i].primary_key_val)->second.unlock();
+
             }
+
         } 
-
-        void Get_Mutex(TP_Struct& dt_data){
-           // lock_guard<mutex> 
-        }
 
     private:
         vector<Table> tbl;           //存储所有的表
 
         unordered_map<string,int> table_name_index;      //快速查找表的索引,int为tbl中的下标    
 
-        int tp_serial_num;                         //事务的全局编号
+        atomic_int32_t tp_serial_num;                         //事务的全局编号
 
 }db;
   
