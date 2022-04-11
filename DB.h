@@ -5,6 +5,7 @@
 #include<thread>
 #include<mutex>
 #include<atomic>
+#include<fstream>
 
 using namespace std;
 
@@ -33,7 +34,7 @@ struct TP_Struct{           //TP事务的基础结构，面向 people.(8).age=3+
     }
 };
 
-class TP_Mutex{    
+class TP_Mutex{               //行锁机制，对于每行数据都存在一个行锁   
     private:
         mutex *m;
         bool flag;        //标记该位置是否被占用,原子数据
@@ -62,16 +63,30 @@ class TP_Mutex{
         }
 
 
-
-
 };
 
 
-struct TP{                          //TP事务
-    int serial_num;                  //事务的编号
-    vector<TP_Struct> tp_date;      //事务的数据
-    vector<TP_Mutex*> mutex_lock;  //事务的行锁集合
+struct TP{                           //TP事务
+    int serial_num;                  //事务的全局编号
+    vector<TP_Struct> tp_date;       //事务的所有元数据
+    vector<TP_Mutex*> mutex_lock;    //事务涉及到的数据的行锁集合
 };
+
+string rand_str(const int len)  /*参数为字符串的长度*/
+{
+    /*初始化*/
+    string str;                 /*声明用来保存随机字符串的str*/
+    char c;                     /*声明字符c，用来保存随机生成的字符*/
+    int idx;                    /*用来循环的变量*/
+    /*循环向字符串中添加随机生成的字符*/
+    for(idx = 0;idx < len;idx ++)
+    {
+        /*rand()%26是取余，余数为0~25加上'a',就是字母a~z,详见asc码表*/
+        c = 'a' + rand()%26;
+        str.push_back(c);       /*push_back()是string类尾插函数。这里插入随机字符c*/
+    }
+    return str;                 /*返回生成的随机字符串*/
+}
 
 
 class Table{          //单表结构，行存储
@@ -96,6 +111,7 @@ class Table{          //单表结构，行存储
             cin>>num;
             if(num==0){
                 cout<<"Not support \n";
+
 
             }else{
                 cout<<"Record nums ?\n";
@@ -122,9 +138,6 @@ class Table{          //单表结构，行存储
                             if(primary_key_index.find(y)==primary_key_index.end()){         //构建hash索引，用于寻找所有的记录
                                 tp_mutex.position=i;
                                 primary_key_index[y]=tp_mutex;
-                                // primary_key_index[y]=move(tp_mutex);
-                                // primary_key_index.insert({y,tp_mutex});
-                                 //primary_key_index.insert(make_pair(y,move(tp_mutex)));
                             }else{
                                 cout<<"The primary key already exits ! retry"<<endl;         //当前主键已存在，重新输入
                                 j--;
@@ -139,6 +152,56 @@ class Table{          //单表结构，行存储
 
         }
 
+
+         void tp_test_import(){
+            const string tl_name="test_table";       //设置测试的表名
+            const int attr_num=6;                //设置表的属性个数
+            const int rd_num=1e5;             //设置待生成的记录的数量
+
+            const int attr_name_len=4;        //属性名的长度
+            
+            /************  Dividing line ***********/
+            
+            table_name=tl_name;
+
+
+            attribute_name.resize(attr_num);             //表属性生成
+            for(int i=0;i<attr_num;i++){
+                attribute_name[i]=rand_str(attr_name_len);
+                attr_index[attribute_name[i]]=i;
+                
+            }
+
+           if(1){
+                for(int i=0;i<attr_num;i++){
+                    cout<<attribute_name[i]<<" ; ";
+                }
+                cout<<endl;
+           }
+
+            attribute_double_val.resize(rd_num);                      //表数据生成
+            int y=0;
+            TP_Mutex tp_mutex;
+            for(int i=0;i<rd_num;i++){
+                attribute_double_val[i].resize(attribute_name.size());
+
+                for(int j=0;j<attribute_name.size();j++){
+                    if(j==0){
+                        attribute_double_val[i][j]=i;      //主键为递增的正整数键值   
+
+                        tp_mutex.position=i;               //构建hash索引，用于寻找所有的记录
+                        primary_key_index[i]=tp_mutex;
+                        
+                    }else{
+                        attribute_double_val[i][j]=rand()%INT_MAX/2;
+                    }
+                }
+            }
+            cout<<"Table is generated ."<<endl;
+        }
+
+
+        
     private:
         // 目前假设所有属性的类型均为有理数
         string table_name;                                        //表名
@@ -211,6 +274,55 @@ class DB{          //数据库，保存多个表
              
         }  
 
+
+        void generate_transcation_and_process(Table &tmp){         //只生成关于单表的事务
+            
+            cout<<"Creating transtractions ... \n";
+            const int tp_num=5;                   //待生成的tp的数量
+            
+
+            TP tp;               //构建TP事务
+            tp.tp_date.resize(tp_num);
+            tp.serial_num=tp_serial_num++;           //添加唯一全局编号
+
+            vector<TP_Struct>& TP=tp.tp_date;  //保存SQL语句中的TP信息
+
+            int attri_num=tmp.attribute_name.size();
+            int rd_num=tmp.attribute_double_val.size();
+
+   
+
+            for(int i=0;i<tp_num;i++){
+                
+                TP[i].table_name=tmp.table_name;
+                TP[i].primary_key_val= (int) rand()%rd_num;
+                TP[i].left_val_name=tmp.attribute_name[rand()%attri_num];
+                
+                TP[i].right_val=rand()%INT_MAX/2;
+            }
+
+            cout<<"Processing transtraction ... \n" ;
+            TP_process(tp);
+  
+           
+             
+        }  
+
+
+
+        void test_tp(){
+            cout<<"Creating table: \n";
+            Table new_table;
+            tbl.push_back(new_table);
+            auto tmp=(tbl.end()-1);
+            tmp->tp_test_import();
+            table_name_index[tmp->table_name]=tbl.size()-1;
+
+            generate_transcation_and_process(*tmp);
+
+            cout<<"TP test is finished "<<endl; 
+
+        }
     private:
 
         bool insert_new_sql(vector<TP_Struct>& dt_data,string tmp){       //tp语句解析，并判断是否存在指向性错误
@@ -282,6 +394,7 @@ class DB{          //数据库，保存多个表
             for(int i=0;i<tb.size();i++){
                 tb[i]=&tbl[table_name_index.find(tp.tp_date[i].table_name)->second];  //定位表
             }
+            
 
             int lock_num=0;
             vector<int> tp_lock_flag;
@@ -290,23 +403,24 @@ class DB{          //数据库，保存多个表
             while(1){      //获取锁
                 lock_num=0;
                 for(int i=0;i<tp.tp_date.size();i++){
-                    if(tb[i]->primary_key_index.find(tp.tp_date[i].primary_key_val)->second.lock()){
+
+                    //如果当前行未被其他事务占用，或者已被本次事务占用，那么成功
+                    if(tb[i]->primary_key_index.find(tp.tp_date[i].primary_key_val)->second.lock()|| tp_lock_flag[i]==tp.serial_num){
                         ++lock_num;
-                        tp_lock_flag[i]=1;
+                        tp_lock_flag[i]=tp.serial_num;
                     }else{
-                        tp_lock_flag[i]=0;
+                        //tp_lock_flag[i]=0;
                     }
                 }
                 if(lock_num==tp.tp_date.size()) break;          //获取锁成功
                 else{
                     for(int i=0;i<tp_lock_flag.size();i++){       //解锁
-                        if(tp_lock_flag[i]){
+                        if(tp_lock_flag[i]==tp.serial_num){
                             tb[i]->primary_key_index.find(tp.tp_date[i].primary_key_val)->second.unlock(); 
                         }
                     }
                 }
             }
-
             for(int i=0;i<tp.tp_date.size();i++){    //实际修改数据
                 auto row=tb[i]->primary_key_index.find(tp.tp_date[i].primary_key_val)->second.position;  //定位行
                 auto column=tb[i]->attr_index.find(tp.tp_date[i].left_val_name)->second;       //定位列
