@@ -7,6 +7,8 @@
 #include<atomic>
 #include<fstream>
 
+#include<windows.h>
+
 using namespace std;
 
 /****
@@ -153,14 +155,15 @@ class Table{          //单表结构，行存储
         }
 
 
-         void tp_test_import(){
+         void tp_test_import( const string tl_name="test_table",const int attr_num=6,const int rd_num=1e5,const int attr_name_len=4){
+            /*
             const string tl_name="test_table";       //设置测试的表名
             const int attr_num=6;                //设置表的属性个数
             const int rd_num=1e5;             //设置待生成的记录的数量
 
             const int attr_name_len=4;        //属性名的长度
-            
-            /************  Dividing line ***********/
+
+            */
             
             table_name=tl_name;
 
@@ -275,13 +278,49 @@ class DB{          //数据库，保存多个表
         }  
 
 
-        void generate_transcation_and_process(Table &tmp){         //只生成关于单表的事务
-            
+        void test_tp(const int parallel_thread_num=4){
+            //int parallel_thread_num=4;          //设置并发的TP线程数量
+            cout<<"Creating table: \n";
+            Table new_table;
+            tbl.push_back(new_table);
+            auto tmp=(tbl.end()-1);
+            tmp->tp_test_import();
+            table_name_index[tmp->table_name]=tbl.size()-1;
+
+           //auto ref_tbl=&(*tmp);
+            if(1){    //单线程环境下测试
+                 generate_transcation_and_process(*tmp);
+            }else{  //并发环境下测试
+                thread th[parallel_thread_num];
+                
+                for(int i=0;i<parallel_thread_num;i++){
+                    //th[i]=thread(generate_transcation_and_process,this,ref_tbl);
+                    th[i]=thread(generate_transcation_and_process,this,cref(*tmp));
+                }
+                for(int i=0;i<parallel_thread_num;i++){
+                    th[i].join();
+                }
+            }
+
+            cout<<"TP test is finished "<<endl; 
+
+        }
+    private:
+
+        void generate_transcation_and_process(const Table& tmp){         //只生成关于单表的事务
+
+           // const Table& tmp=*ref_tmp;
             cout<<"Creating transtractions ... \n";
-            const int tp_num=5;                   //待生成的tp的数量
-            
 
             TP tp;               //构建TP事务
+            tp_generate(tmp,tp);
+            cout<<"Processing transtraction ... \n" ;
+            TP_process(tp);     
+        }  
+
+        void tp_generate(const Table &tmp,TP &tp,const int tp_num=5){     
+           // const int tp_num=5;                   //待生成的tp的数量
+
             tp.tp_date.resize(tp_num);
             tp.serial_num=tp_serial_num++;           //添加唯一全局编号
 
@@ -290,40 +329,15 @@ class DB{          //数据库，保存多个表
             int attri_num=tmp.attribute_name.size();
             int rd_num=tmp.attribute_double_val.size();
 
-   
-
             for(int i=0;i<tp_num;i++){
-                
                 TP[i].table_name=tmp.table_name;
                 TP[i].primary_key_val= (int) rand()%rd_num;
                 TP[i].left_val_name=tmp.attribute_name[rand()%attri_num];
                 
                 TP[i].right_val=rand()%INT_MAX/2;
             }
-
-            cout<<"Processing transtraction ... \n" ;
-            TP_process(tp);
-  
-           
-             
-        }  
-
-
-
-        void test_tp(){
-            cout<<"Creating table: \n";
-            Table new_table;
-            tbl.push_back(new_table);
-            auto tmp=(tbl.end()-1);
-            tmp->tp_test_import();
-            table_name_index[tmp->table_name]=tbl.size()-1;
-
-            generate_transcation_and_process(*tmp);
-
-            cout<<"TP test is finished "<<endl; 
-
         }
-    private:
+
 
         bool insert_new_sql(vector<TP_Struct>& dt_data,string tmp){       //tp语句解析，并判断是否存在指向性错误
             TP_Struct tp_new;
@@ -419,6 +433,7 @@ class DB{          //数据库，保存多个表
                             tb[i]->primary_key_index.find(tp.tp_date[i].primary_key_val)->second.unlock(); 
                         }
                     }
+                    Sleep(rand()%10);
                 }
             }
             for(int i=0;i<tp.tp_date.size();i++){    //实际修改数据
