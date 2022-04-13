@@ -51,7 +51,12 @@
         "xtree": "cpp",
         "xutility": "cpp",
         "mutex": "cpp",
-        "fstream": "cpp"
+        "fstream": "cpp",
+        "random": "cpp",
+        "charconv": "cpp",
+        "chrono": "cpp",
+        "iomanip": "cpp",
+        "*.rh": "cpp"
     },
     "C_Cpp.errorSquiggles": "Disabled"
 }

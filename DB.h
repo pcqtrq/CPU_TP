@@ -6,10 +6,17 @@
 #include<mutex>
 #include<atomic>
 #include<fstream>
+#include<random>
+#include<ctime>
 
 #include<windows.h>
 
 using namespace std;
+
+#define debug_ok 1
+
+static default_random_engine e(time(0));
+static uniform_int_distribution<int> rand_generate(0,1e5/2);
 
 /****
  * id  age  hight
@@ -32,7 +39,7 @@ struct TP_Struct{           //TP事务的基础结构，面向 people.(8).age=3+
     //double* left_val;           //left_val是左值的地址
 
     void display(){
-        cout<<table_name<<" "<<primary_key_val<<"  "<<left_val_name<<"  "<<right_val_1<<"  "<<right_val_2<<endl;
+        cout<<table_name<<" "<<primary_key_val<<"  "<<left_val_name<<"  "<<right_val<<endl;
     }
 };
 
@@ -43,21 +50,23 @@ class TP_Mutex{               //行锁机制，对于每行数据都存在一个
 
     public:
         int position;          //记录在表中的实际位置
+        int serial_num;       //如果锁有效，当前归属的全局事务的编号
+
         TP_Mutex(){
             m=new mutex();
+            position=-1;
+            serial_num=-1;
         }
         bool lock(){
-            auto& m1=*m;
-            if(m1.try_lock()){
-                  flag=true;
-                  m1.unlock();
+           // auto& m1=*m;
+            if((*m).try_lock()){
                   return true;
             }
             return false;
         }
 
         void unlock(){
-            flag=false;
+            (*m).unlock();
         }
 
         ~TP_Mutex(){
@@ -68,10 +77,19 @@ class TP_Mutex{               //行锁机制，对于每行数据都存在一个
 };
 
 
-struct TP{                           //TP事务
-    int serial_num;                  //事务的全局编号
-    vector<TP_Struct> tp_date;       //事务的所有元数据
-    vector<TP_Mutex*> mutex_lock;    //事务涉及到的数据的行锁集合
+class TP{                           //TP事务
+    public:
+        int serial_num;                  //事务的全局编号
+        vector<TP_Struct> tp_date;       //事务的所有元数据
+        vector<TP_Mutex*> mutex_lock;    //事务涉及到的数据的行锁集合
+
+        void init_mutex(){
+            mutex_lock.resize(tp_date.size());
+            for(int i=0;i<tp_date.size();i++){
+                mutex_lock[i]=nullptr;
+            }
+        }
+
 };
 
 string rand_str(const int len)  /*参数为字符串的长度*/
@@ -84,7 +102,7 @@ string rand_str(const int len)  /*参数为字符串的长度*/
     for(idx = 0;idx < len;idx ++)
     {
         /*rand()%26是取余，余数为0~25加上'a',就是字母a~z,详见asc码表*/
-        c = 'a' + rand()%26;
+        c = 'a' + rand_generate(e)%26;
         str.push_back(c);       /*push_back()是string类尾插函数。这里插入随机字符c*/
     }
     return str;                 /*返回生成的随机字符串*/
@@ -155,7 +173,7 @@ class Table{          //单表结构，行存储
         }
 
 
-         void tp_test_import( const string tl_name="test_table",const int attr_num=6,const int rd_num=1e5,const int attr_name_len=4){
+         void tp_test_import( const string tl_name="test_table",const int attr_num=6,const int rd_num=1e2,const int attr_name_len=4){
             /*
             const string tl_name="test_table";       //设置测试的表名
             const int attr_num=6;                //设置表的属性个数
@@ -169,7 +187,10 @@ class Table{          //单表结构，行存储
 
 
             attribute_name.resize(attr_num);             //表属性生成
-            for(int i=0;i<attr_num;i++){
+
+            attribute_name[0]="id";   //主属性名为id
+            attr_index[attribute_name[0]]=0;
+            for(int i=1;i<attr_num;i++){
                 attribute_name[i]=rand_str(attr_name_len);
                 attr_index[attribute_name[i]]=i;
                 
@@ -196,9 +217,10 @@ class Table{          //单表结构，行存储
                         primary_key_index[i]=tp_mutex;
                         
                     }else{
-                        attribute_double_val[i][j]=rand()%INT_MAX/2;
+                        attribute_double_val[i][j]=rand_generate(e);
                     }
                 }
+               // if(debug_ok) cout<<i<<" :  "<< *(attribute_double_val[i].end()-1)<<endl;
             }
             cout<<"Table is generated ."<<endl;
         }
@@ -278,7 +300,7 @@ class DB{          //数据库，保存多个表
         }  
 
 
-        void test_tp(const int parallel_thread_num=4){
+        void test_tp(const int parallel_thread_num=1){
             //int parallel_thread_num=4;          //设置并发的TP线程数量
             cout<<"Creating table: \n";
             Table new_table;
@@ -286,17 +308,17 @@ class DB{          //数据库，保存多个表
             auto tmp=(tbl.end()-1);
             tmp->tp_test_import();
             table_name_index[tmp->table_name]=tbl.size()-1;
-
-           //auto ref_tbl=&(*tmp);
-            if(1){    //单线程环境下测试
+            
+            if(0){    //单线程环境下测试
                  generate_transcation_and_process(*tmp);
             }else{  //并发环境下测试
                 thread th[parallel_thread_num];
                 
                 for(int i=0;i<parallel_thread_num;i++){
-                    //th[i]=thread(generate_transcation_and_process,this,ref_tbl);
+                   
                     th[i]=thread(generate_transcation_and_process,this,cref(*tmp));
                 }
+                
                 for(int i=0;i<parallel_thread_num;i++){
                     th[i].join();
                 }
@@ -309,19 +331,20 @@ class DB{          //数据库，保存多个表
 
         void generate_transcation_and_process(const Table& tmp){         //只生成关于单表的事务
 
-           // const Table& tmp=*ref_tmp;
-            cout<<"Creating transtractions ... \n";
+            cout<<"Creating transtractions ... "<<endl;
 
             TP tp;               //构建TP事务
             tp_generate(tmp,tp);
-            cout<<"Processing transtraction ... \n" ;
+            cout<<"Processing transtraction ... "<<endl;
             TP_process(tp);     
+            cout<<"Transtraction completition... "<<endl;
         }  
 
         void tp_generate(const Table &tmp,TP &tp,const int tp_num=5){     
            // const int tp_num=5;                   //待生成的tp的数量
 
             tp.tp_date.resize(tp_num);
+            tp.init_mutex();
             tp.serial_num=tp_serial_num++;           //添加唯一全局编号
 
             vector<TP_Struct>& TP=tp.tp_date;  //保存SQL语句中的TP信息
@@ -331,12 +354,70 @@ class DB{          //数据库，保存多个表
 
             for(int i=0;i<tp_num;i++){
                 TP[i].table_name=tmp.table_name;
-                TP[i].primary_key_val= (int) rand()%rd_num;
-                TP[i].left_val_name=tmp.attribute_name[rand()%attri_num];
-                
-                TP[i].right_val=rand()%INT_MAX/2;
+                TP[i].primary_key_val= rand_generate(e)%rd_num;
+                TP[i].left_val_name=tmp.attribute_name[rand_generate(e)%(attri_num-1)+1];
+                TP[i].right_val=rand_generate(e);
+
+                if(debug_ok) TP[i].display();
             }
         }
+
+      
+        void TP_process(TP& tp,const int Max_Retries = 3){      
+          /*
+          **我们采用行锁保证事务的准确性，并通过设定事务持锁的最长时间阈值，来解决事务行锁机制的死锁问题
+          *我们要求必须获得当前数据涉及到的数据所涉及到的所有的锁后，才可以进行数据的实际修改
+          *我们的所有锁都是互斥锁
+          */
+            vector<Table*> tb;                //定位TP数据中的每行所在表
+            tb.resize(tp.tp_date.size());
+            for(int i=0;i<tb.size();i++){
+              tb[i]=&tbl[table_name_index.find(tp.tp_date[i].table_name)->second];  //定位表
+            }
+
+            int tp_num=tp.tp_date.size();    //tp_num是当前事务的record数量
+
+            int lock_num=0;
+            while(1){      //获取锁
+                lock_num=0;
+                for(int i=0;i<tp_num;i++){
+                    //如果当前行未被其他事务占用，或者已被本次事务占用，那么成功
+                    auto tmp=tb[i]->primary_key_index.find(tp.tp_date[i].primary_key_val);
+                    if(tmp==tb[i]->primary_key_index.end()) {
+                        cout<<"Record found error !"<<endl;
+                        exit(0);
+                    }else if(tmp->second.lock()){
+                        ++lock_num;
+                        tmp->second.serial_num=tp.serial_num;
+
+                        tp.mutex_lock[i]=&(tmp->second);
+                    }
+                }
+                if(debug_ok) cout<<GetCurrentThreadId()<<" "<<lock_num<<endl;
+                if(lock_num==tp_num) break;          //获取所有的record锁成功
+                else{
+                    for(int i=0;i<tp_num;i++){       //解锁
+                        if( tp.mutex_lock[i]!=nullptr){
+                            //tb[i]->primary_key_index.find(tp.tp_date[i].primary_key_val)->second.unlock(); 
+                            tp.mutex_lock[i]->unlock();
+                            tp.mutex_lock[i]=nullptr;
+                        }
+                    }
+                    lock_num=0;
+                }
+                Sleep(rand_generate(e)%12);
+            }
+            for(int i=0;i<tp_num;i++){    //实际修改数据
+                auto row=tb[i]->primary_key_index.find(tp.tp_date[i].primary_key_val)->second.position;  //定位行
+                auto column=tb[i]->attr_index.find(tp.tp_date[i].left_val_name)->second;       //定位列
+                tb[i]->attribute_double_val[row][column]=tp.tp_date[i].right_val;             //修改值
+
+                //解锁
+                //tb[i]->primary_key_index.find(tp.tp_date[i].primary_key_val)->second.unlock();
+                tp.mutex_lock[i]->unlock();
+            }
+
+        } 
 
 
         bool insert_new_sql(vector<TP_Struct>& dt_data,string tmp){       //tp语句解析，并判断是否存在指向性错误
@@ -396,58 +477,7 @@ class DB{          //数据库，保存多个表
            }
             return false;
         }
-        
-        void TP_process(TP& tp){      
-          /*
-          **我们采用行锁保证事务的准确性，并通过设定事务持锁的最长时间阈值，来解决事务行锁机制的死锁问题
-          *我们要求必须获得当前数据涉及到的数据所涉及到的所有的锁后，才可以进行数据的实际修改
-          *我们的所有锁都是互斥锁
-          */
-            vector<Table*> tb;                //定位TP数据中的每行所在表
-            tb.resize(tp.tp_date.size());
-            for(int i=0;i<tb.size();i++){
-                tb[i]=&tbl[table_name_index.find(tp.tp_date[i].table_name)->second];  //定位表
-            }
-            
-
-            int lock_num=0;
-            vector<int> tp_lock_flag;
-            tp_lock_flag.resize(tp.tp_date.size());
-
-            while(1){      //获取锁
-                lock_num=0;
-                for(int i=0;i<tp.tp_date.size();i++){
-
-                    //如果当前行未被其他事务占用，或者已被本次事务占用，那么成功
-                    if(tb[i]->primary_key_index.find(tp.tp_date[i].primary_key_val)->second.lock()|| tp_lock_flag[i]==tp.serial_num){
-                        ++lock_num;
-                        tp_lock_flag[i]=tp.serial_num;
-                    }else{
-                        //tp_lock_flag[i]=0;
-                    }
-                }
-                if(lock_num==tp.tp_date.size()) break;          //获取锁成功
-                else{
-                    for(int i=0;i<tp_lock_flag.size();i++){       //解锁
-                        if(tp_lock_flag[i]==tp.serial_num){
-                            tb[i]->primary_key_index.find(tp.tp_date[i].primary_key_val)->second.unlock(); 
-                        }
-                    }
-                    Sleep(rand()%10);
-                }
-            }
-            for(int i=0;i<tp.tp_date.size();i++){    //实际修改数据
-                auto row=tb[i]->primary_key_index.find(tp.tp_date[i].primary_key_val)->second.position;  //定位行
-                auto column=tb[i]->attr_index.find(tp.tp_date[i].left_val_name)->second;       //定位列
-                tb[i]->attribute_double_val[row][column]=tp.tp_date[i].right_val;             //修改值
-
-                //解锁
-                tb[i]->primary_key_index.find(tp.tp_date[i].primary_key_val)->second.unlock();
-
-            }
-
-        } 
-
+  
     private:
         vector<Table> tbl;           //存储所有的表
 
