@@ -56,7 +56,10 @@
         "charconv": "cpp",
         "chrono": "cpp",
         "iomanip": "cpp",
-        "*.rh": "cpp"
+        "*.rh": "cpp",
+        "forward_list": "cpp",
+        "locale": "cpp",
+        "stop_token": "cpp"
     },
     "C_Cpp.errorSquiggles": "Disabled"
 }
