@@ -13,7 +13,7 @@
 
 using namespace std;
 
-#define debug_ok 1
+#define debug_ok 0
 
 static default_random_engine e(time(0));
 static uniform_int_distribution<int> rand_generate(0,1e5/2);
@@ -45,6 +45,7 @@ struct TP_Struct{           //TP事务的基础结构，面向 people.(8).age=3+
 
 class TP_Mutex{               //行锁机制，对于每行数据都存在一个行锁   
     private:
+   // public:
         mutex *m;
         bool flag;        //标记该位置是否被占用,原子数据
 
@@ -66,7 +67,7 @@ class TP_Mutex{               //行锁机制，对于每行数据都存在一个
         
         bool lock(int tp_serial_num){
             //unique_lock<mutex> lck(*m);
-            cout<<m<<"锁指针的地址"<<endl;
+            //cout<<m<<"锁指针的地址"<<endl;
             m->lock();
             if(flag==1||flag==0&&serial_num==tp_serial_num){
                 flag=0;
@@ -185,7 +186,7 @@ class Table{          //单表结构，行存储
         }
 
 
-         void tp_test_import( const string tl_name="test_table",const int attr_num=6,const int rd_num=1e4,const int attr_name_len=4){
+         void tp_test_import( const string tl_name="test_table",const int attr_num=6,const int rd_num=1e5,const int attr_name_len=4){
             /*
             const string tl_name="test_table";       //设置测试的表名
             const int attr_num=6;                //设置表的属性个数
@@ -228,6 +229,7 @@ class Table{          //单表结构，行存储
                         tp_mutex.position=i;               //构建hash索引，用于寻找所有的记录
                         primary_key_index[i]=tp_mutex;
                         primary_key_index[i].init_mutex();
+                        //cout<<&primary_key_index[i]<<"  "<<&primary_key_index[i].position<<"  "<<primary_key_index[i].m<<endl;
                         
                     }else{
                         attribute_double_val[i][j]=rand_generate(e);
@@ -400,7 +402,6 @@ class DB{          //数据库，保存多个表
                         cout<<"Record found error !"<<endl;
                         exit(0);
                     }
-                cout<<"******"<<endl;
                     if(tmp->second.lock(tp.serial_num)){
                         ++lock_num;
                         tmp->second.serial_num=tp.serial_num;
